@@ -111,7 +111,7 @@ class TApplicationException(TException):
 
   def __str__(self):
     if self.message:
-      return self.message
+      return str(self.message)
     elif self.type == self.UNKNOWN_METHOD:
       return 'Unknown method'
     elif self.type == self.INVALID_MESSAGE_TYPE:
