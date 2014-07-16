@@ -62,6 +62,7 @@ def get_value(colValue):
     elif colValue.stringVal is not None:
       return colValue.stringVal.value
 
+
 class Cursor(object):
     session = None
     client = None
@@ -80,7 +81,10 @@ class Cursor(object):
             raise Pyhs2Exception(res.status.errorCode, res.status.errorMessage)
 
     @asyncio.coroutine
-    def fetch(self, maxRows=10000):
+    def fetch(self, hql=None, maxRows=10000):
+        if hql:
+            yield from self.execute(hql)
+
         rows = []
         fetchReq = TFetchResultsReq(operationHandle=self.operationHandle,
                                     orientation=TFetchOrientation.FETCH_NEXT,
@@ -88,11 +92,38 @@ class Cursor(object):
         yield from self._fetch(rows, fetchReq)
         return rows
 
-    def iter(self, maxRows=10000):
-        fetchReq = TFetchResultsReq(operationHandle=self.operationHandle,
-                                    orientation=TFetchOrientation.FETCH_NEXT,
-                                    maxRows=maxRows)
-        return self._iter(fetchReq)
+    def iter(self, hql=None, maxRows=10000):
+        if hql:
+            @asyncio.coroutine
+            def withexec():
+                yield from self.execute(hql)
+                fetchReq = TFetchResultsReq(operationHandle=self.operationHandle,
+                                            orientation=TFetchOrientation.FETCH_NEXT,
+                                            maxRows=maxRows)
+                return (yield from self._fetch_chunk(fetchReq))
+            first = withexec()
+        else:
+            fetchReq = TFetchResultsReq(operationHandle=self.operationHandle,
+                                        orientation=TFetchOrientation.FETCH_NEXT,
+                                        maxRows=maxRows)
+            first = self._fetch_chunk(fetchReq)
+
+        fetch = asyncio.async(first)
+        try:
+            yield fetch
+            fetchReq = TFetchResultsReq(operationHandle=self.operationHandle,
+                                        orientation=TFetchOrientation.FETCH_NEXT,
+                                        maxRows=maxRows)
+
+            while fetch.done() and fetch.result():
+                fetch = asyncio.async(self._fetch_chunk(fetchReq))
+                yield fetch
+
+            if not fetch.done():
+                raise ValueError("Your loop should evaluate the supplied future.")
+
+        finally:
+            fetch.cancel()
 
     @asyncio.coroutine
     def getSchema(self):
@@ -131,15 +162,6 @@ class Cursor(object):
         resultsRes = yield from self.client.FetchResults(fetchReq)
         return [[get_value(col) for col in row.colVals] for row in resultsRes.results.rows]
         
-    def _iter(self, fetchReq):
-        while True:
-            fetch = asyncio.async(self._fetch_chunk(fetchReq))
-            yield fetch
-            if not fetch.done():
-                fetch.cancel()
-                raise ValueError("Your loop should use the supplied future.")
-            if not fetch.result():
-                break
 
     @asyncio.coroutine
     def _fetch(self, rows, fetchReq):
@@ -155,3 +177,4 @@ class Cursor(object):
         if self.operationHandle is not None:
             req = TCloseOperationReq(operationHandle=self.operationHandle)
             yield from self.client.CloseOperation(req)
+
