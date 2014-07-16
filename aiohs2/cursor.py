@@ -80,13 +80,19 @@ class Cursor(object):
             raise Pyhs2Exception(res.status.errorCode, res.status.errorMessage)
 
     @asyncio.coroutine
-    def fetch(self):
+    def fetch(self, maxRows=10000):
         rows = []
         fetchReq = TFetchResultsReq(operationHandle=self.operationHandle,
                                     orientation=TFetchOrientation.FETCH_NEXT,
-                                    maxRows=10000)
+                                    maxRows=maxRows)
         yield from self._fetch(rows, fetchReq)
         return rows
+
+    def iter(self, maxRows=10000):
+        fetchReq = TFetchResultsReq(operationHandle=self.operationHandle,
+                                    orientation=TFetchOrientation.FETCH_NEXT,
+                                    maxRows=maxRows)
+        return self._iter(fetchReq)
 
     @asyncio.coroutine
     def getSchema(self):
@@ -121,15 +127,26 @@ class Cursor(object):
         self.close()
 
     @asyncio.coroutine
+    def _fetch_chunk(self, fetchReq):
+        resultsRes = yield from self.client.FetchResults(fetchReq)
+        return [[get_value(col) for col in row.colVals] for row in resultsRes.results.rows]
+        
+    def _iter(self, fetchReq):
+        while True:
+            fetch = asyncio.async(self._fetch_chunk(fetchReq))
+            yield fetch
+            if not fetch.done():
+                fetch.cancel()
+                raise ValueError("Your loop should use the supplied future.")
+            if not fetch.result():
+                break
+
+    @asyncio.coroutine
     def _fetch(self, rows, fetchReq):
         while True:
-            resultsRes = yield from self.client.FetchResults(fetchReq)
-            for row in resultsRes.results.rows:
-                rowData= []
-                for i, col in enumerate(row.colVals):
-                    rowData.append(get_value(col))
-                rows.append(rowData)
-            if len(resultsRes.results.rows) == 0:
+            chunk = yield from self._fetch_chunk(fetchReq)
+            rows.extend(chunk)
+            if not chunk:
                 break
         return rows
 
