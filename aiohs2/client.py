@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from functools import wraps
 
 from thrift.protocol.TBinaryProtocol import TBinaryProtocolAcceleratedFactory
@@ -50,10 +51,23 @@ class Client(object):
             raise AttributeError("%s object has not attribute %r" % (type(self).__name__, name))
 
         @asyncio.coroutine
-        @wraps(f)
         def oncursor(*args, **kws):
-            with (yield from self.cursor()) as cur:
-                return (yield from f(cur, *args, **kws))
+            cur = (yield from self.cursor())
+
+            if asyncio.iscoroutinefunction(f):
+                with cur:
+                    return (yield from f(cur, *args, **kws))
+
+            elif inspect.isgeneratorfunction(f):
+                def closing():
+                    try:
+                        return (yield from f(cur, *args, **kws))
+                    finally:
+                        cur.close()
+                return closing()
+
+            else:
+                return f(cur, *args, **kws)
 
         return oncursor
     
