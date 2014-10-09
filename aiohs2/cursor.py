@@ -155,6 +155,8 @@ class Cursor(object):
         return self
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
+        print('WARNING: context does not work as expected, '+
+              'close never executed')
         self.close()
 
     @asyncio.coroutine

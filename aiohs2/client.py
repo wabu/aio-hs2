@@ -55,8 +55,10 @@ class Client(object):
             cur = (yield from self.cursor())
 
             if asyncio.iscoroutinefunction(f):
-                with cur:
+                try:
                     return (yield from f(cur, *args, **kws))
+                finally:
+                    yield from cur.close()
 
             elif inspect.isgeneratorfunction(f):
                 def closing():
