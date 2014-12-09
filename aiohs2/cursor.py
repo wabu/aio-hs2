@@ -179,10 +179,15 @@ class Cursor(object):
         if self.operationHandle is not None:
             req = TCloseOperationReq(operationHandle=self.operationHandle)
             yield from self.client.CloseOperation(req)
+            self.operationHandle = None
 
     def __del__(self):
         if self.operationHandle is not None:
             import warnings
-            warnings.warn('closing pending hiversver handle')
-            asyncio.get_event_loop().run_until_complete(self.close())
+            warnings.warn('closing pending hiversver handle', ResourceWarning)
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.async(self.close())
+            else:
+                loop.run_until_complete(self.close())
 
