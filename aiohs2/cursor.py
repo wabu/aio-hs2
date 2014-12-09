@@ -180,3 +180,9 @@ class Cursor(object):
             req = TCloseOperationReq(operationHandle=self.operationHandle)
             yield from self.client.CloseOperation(req)
 
+    def __del__(self):
+        if self.operationHandle is not None:
+            import warnings
+            warnings.warn('closing pending hiversver handle')
+            asyncio.get_event_loop().run_until_complete(self.close())
+
